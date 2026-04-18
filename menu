@@ -85,37 +85,14 @@ check_updates_stable() {
 }
 
 # ── Beta-mode update check (main + develop) ───────────────
-# When the beta program is active, check BOTH channels:
-#   1. main   → prompt if a newer stable is available
-#   2. develop → prompt if a newer beta build is available
-# Stable check runs first. Declining it falls through to the beta check.
+# When the beta program is active, check BOTH channels. The stable check
+# is delegated to check_updates_stable (same prompt, same installer). After
+# that we only need the beta-specific part: develop vs beta_version.txt.
 check_updates_beta() {
-    # ── 1. Stable release on main ──
-    if [[ -f "$LOCAL_VERSION_FILE" ]]; then
-        local REMOTE_STABLE LOCAL_STABLE
-        REMOTE_STABLE="$(curl -fsSL "$REPO_MAIN/version.txt" 2>/dev/null | head -n 1)"
-        LOCAL_STABLE="$(head -n 1 "$LOCAL_VERSION_FILE" 2>/dev/null)"
+    # 1. Stable release on main — reuse the non-beta path.
+    check_updates_stable
 
-        if [[ -n "$REMOTE_STABLE" && -n "$LOCAL_STABLE" && "$LOCAL_STABLE" != "$REMOTE_STABLE" ]] && \
-           [[ "$(printf '%s\n%s\n' "$LOCAL_STABLE" "$REMOTE_STABLE" | sort -V | tail -1)" = "$REMOTE_STABLE" ]]; then
-
-            if whiptail --title "$(translate 'Update Available')" \
-                        --yesno "$(translate 'New version available') ($REMOTE_STABLE)\n\n$(translate 'Do you want to update now?')" \
-                        10 60 --defaultno; then
-
-                msg_warn "$(translate 'Starting ProxMenux update...')"
-
-                local INSTALL_STABLE_SCRIPT="$BASE_DIR/install_proxmenux.sh"
-                if curl -fsSL "$REPO_MAIN/install_proxmenux.sh" -o "$INSTALL_STABLE_SCRIPT"; then
-                    chmod +x "$INSTALL_STABLE_SCRIPT"
-                    bash "$INSTALL_STABLE_SCRIPT" --update
-                    return 0
-                fi
-            fi
-        fi
-    fi
-
-    # ── 2. Beta build on develop ──
+    # 2. Beta build on develop.
     [[ ! -f "$BETA_VERSION_FILE" ]] && return 0
 
     local REMOTE_BETA LOCAL_BETA
