@@ -507,6 +507,67 @@ find_gpu_by_slot() {
   return 1
 }
 
+# ==========================================================
+# SR-IOV guard — abort mode switch when SR-IOV is active
+# ==========================================================
+# Same policy as the interactive switch_gpu_mode.sh: refuse to operate on
+# a Virtual Function or on a Physical Function that already has active
+# VFs, since flipping drivers in that state collapses the VF tree and
+# breaks every guest that was consuming a VF.
+check_sriov_and_block_if_needed() {
+  declare -F _pci_sriov_role >/dev/null 2>&1 || return 0
+
+  local idx pci role first_word pf_bdf active_count
+  local -a vf_list=()
+  local -a pf_list=()
+
+  for idx in "${SELECTED_GPU_IDX[@]}"; do
+    pci="${ALL_GPU_PCIS[$idx]}"
+    role=$(_pci_sriov_role "$pci")
+    first_word="${role%% *}"
+    case "$first_word" in
+      vf)
+        pf_bdf="${role#vf }"
+        vf_list+=("${pci}|${pf_bdf}")
+        ;;
+      pf-active)
+        active_count="${role#pf-active }"
+        pf_list+=("${pci}|${active_count}")
+        ;;
+    esac
+  done
+
+  [[ ${#vf_list[@]} -eq 0 && ${#pf_list[@]} -eq 0 ]] && return 0
+
+  local msg entry bdf parent cnt
+  msg="<div style='color:#f0ad4e;font-weight:bold;margin-bottom:10px;'>$(translate 'SR-IOV Configuration Detected')</div>"
+
+  if [[ ${#vf_list[@]} -gt 0 ]]; then
+    msg+="<p>$(translate 'The following selected device(s) are SR-IOV Virtual Functions (VFs):')</p><ul>"
+    for entry in "${vf_list[@]}"; do
+      bdf="${entry%%|*}"
+      parent="${entry#*|}"
+      msg+="<li><code>${bdf}</code> &mdash; $(translate 'parent PF:') <code>${parent}</code></li>"
+    done
+    msg+="</ul>"
+  fi
+
+  if [[ ${#pf_list[@]} -gt 0 ]]; then
+    msg+="<p>$(translate 'The following selected device(s) are Physical Functions with active Virtual Functions:')</p><ul>"
+    for entry in "${pf_list[@]}"; do
+      bdf="${entry%%|*}"
+      cnt="${entry#*|}"
+      msg+="<li><code>${bdf}</code> &mdash; ${cnt} $(translate 'active VF(s)')</li>"
+    done
+    msg+="</ul>"
+  fi
+
+  msg+="<p>$(translate 'To assign VFs to VMs or LXCs, edit the configuration manually via the Proxmox web interface. The Physical Function will remain bound to the native driver.')</p>"
+
+  hybrid_msgbox "$(translate 'SR-IOV Configuration Detected')" "$msg"
+  return 1
+}
+
 validate_vm_mode_blocked_ids() {
   [[ "$TARGET_MODE" != "vm" ]] && return 0
 
@@ -1144,6 +1205,12 @@ main() {
 
   # Find the specific GPU by slot
   if ! find_gpu_by_slot "$PARAM_GPU_SLOT"; then
+    exit 1
+  fi
+
+  # SR-IOV guard: refuse to toggle the driver on a VF or on a PF with
+  # active VFs. Manual handling via Proxmox web UI is required.
+  if ! check_sriov_and_block_if_needed; then
     exit 1
   fi
 

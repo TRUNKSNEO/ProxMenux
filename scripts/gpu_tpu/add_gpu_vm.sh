@@ -719,6 +719,48 @@ select_gpu() {
 
 
 # ==========================================================
+# SR-IOV guard — refuse to assign a Virtual Function or a Physical
+# Function with active VFs. Matches the policy in switch_gpu_mode.sh:
+# writing this GPU's vendor:device to /etc/modprobe.d/vfio.conf would
+# let vfio-pci claim the PF at next boot and destroy the whole VF
+# tree. ProxMenux does not yet manage SR-IOV lifecycle, so we stop
+# before touching vfio.conf / blacklist.conf.
+# ==========================================================
+check_sriov_and_block_if_needed() {
+    declare -F _pci_sriov_role >/dev/null 2>&1 || return 0
+    [[ -n "$SELECTED_GPU_PCI" ]] || return 0
+
+    local role first_word detail=""
+    role=$(_pci_sriov_role "$SELECTED_GPU_PCI")
+    first_word="${role%% *}"
+
+    case "$first_word" in
+        vf)
+            local parent="${role#vf }"
+            detail="$(translate 'The selected device') \Zb${SELECTED_GPU_PCI}\Zn $(translate 'is an SR-IOV Virtual Function (VF). Its parent Physical Function is') \Zb${parent}\Zn."
+            ;;
+        pf-active)
+            local n="${role#pf-active }"
+            detail="$(translate 'The selected device') \Zb${SELECTED_GPU_PCI}\Zn $(translate 'is a Physical Function with') \Zb${n}\Zn $(translate 'active Virtual Functions. Changing its driver binding would destroy every VF.')"
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+
+    local msg
+    msg="\n\Zb\Z6$(translate 'SR-IOV Configuration Detected')\Zn\n\n"
+    msg+="${detail}\n\n"
+    msg+="$(translate 'To assign VFs to VMs or LXCs, edit the configuration manually via the Proxmox web interface. The Physical Function will remain bound to the native driver.')"
+
+    _pmx_msgbox "$(translate 'SR-IOV Configuration Detected')" "$msg" 16 82
+
+    [[ "$WIZARD_CALL" == "true" ]] && _set_wizard_result "cancelled"
+    exit 0
+}
+
+
+# ==========================================================
 # Phase 1 — Step 4: Single-GPU warning
 # ==========================================================
 warn_single_gpu() {
@@ -1922,6 +1964,7 @@ main() {
     detect_host_gpus
     check_iommu_enabled
     select_gpu
+    check_sriov_and_block_if_needed
     warn_single_gpu
     select_vm
     ensure_selected_gpu_not_already_in_target_vm

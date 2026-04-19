@@ -624,6 +624,75 @@ select_gpus() {
   read -ra SELECTED_GPU_IDX <<< "$sel"
 }
 
+# ==========================================================
+# SR-IOV guard — abort mode switch when SR-IOV is active
+# ==========================================================
+# Intel i915-sriov-dkms and AMD MxGPU split a Physical Function (PF) into
+# multiple Virtual Functions (VFs). Switching the PF's driver destroys
+# every VF; switching a VF's driver affects only that VF. ProxMenux does
+# not yet manage the SR-IOV lifecycle (create/destroy VFs, track per-VF
+# ownership), so operating on a PF with active VFs — or on a VF itself —
+# would leave the user's virtualization stack in an inconsistent state.
+# We detect the situation early and hand the user back to the Proxmox
+# web UI, which understands VFs as first-class PCI devices.
+check_sriov_and_block_if_needed() {
+  declare -F _pci_sriov_role >/dev/null 2>&1 || return 0
+
+  local idx pci role first_word pf_bdf active_count
+  local -a vf_list=()
+  local -a pf_list=()
+
+  for idx in "${SELECTED_GPU_IDX[@]}"; do
+    pci="${ALL_GPU_PCIS[$idx]}"
+    role=$(_pci_sriov_role "$pci")
+    first_word="${role%% *}"
+    case "$first_word" in
+      vf)
+        pf_bdf="${role#vf }"
+        vf_list+=("${pci}|${pf_bdf}")
+        ;;
+      pf-active)
+        active_count="${role#pf-active }"
+        pf_list+=("${pci}|${active_count}")
+        ;;
+    esac
+  done
+
+  [[ ${#vf_list[@]} -eq 0 && ${#pf_list[@]} -eq 0 ]] && return 0
+
+  local title msg entry bdf parent cnt
+  title="$(translate 'SR-IOV Configuration Detected')"
+  msg="\n"
+
+  if [[ ${#vf_list[@]} -gt 0 ]]; then
+    msg+="$(translate 'The following selected device(s) are SR-IOV Virtual Functions (VFs):')\n\n"
+    for entry in "${vf_list[@]}"; do
+      bdf="${entry%%|*}"
+      parent="${entry#*|}"
+      msg+="  • ${bdf}  $(translate '(parent PF:') ${parent})\n"
+    done
+    msg+="\n"
+  fi
+
+  if [[ ${#pf_list[@]} -gt 0 ]]; then
+    msg+="$(translate 'The following selected device(s) are Physical Functions with active Virtual Functions:')\n\n"
+    for entry in "${pf_list[@]}"; do
+      bdf="${entry%%|*}"
+      cnt="${entry#*|}"
+      msg+="  • ${bdf}  — ${cnt} $(translate 'active VF(s)')\n"
+    done
+    msg+="\n"
+  fi
+
+  msg+="$(translate 'To assign VFs to VMs or LXCs, edit the configuration manually via the Proxmox web interface. The Physical Function will remain bound to the native driver.')"
+
+  dialog --backtitle "ProxMenux" \
+    --title "$title" \
+    --msgbox "$msg" 20 80
+
+  exit 0
+}
+
 collect_selected_iommu_ids() {
   SELECTED_IOMMU_IDS=()
   SELECTED_PCI_SLOTS=()
@@ -1164,6 +1233,7 @@ main() {
   detect_host_gpus
   while true; do
     select_gpus
+    check_sriov_and_block_if_needed
     select_target_mode
     [[ $? -eq 2 ]] && continue
     validate_vm_mode_blocked_ids
