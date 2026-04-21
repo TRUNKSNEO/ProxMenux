@@ -681,11 +681,11 @@
     "port": 3000,
     "website": "https://github.com/ZhFahim/anchor",
     "documentation": "https://github.com/ZhFahim/anchor#readme",
-    "logo": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/webp/anchor.webp",
+    "logo": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/webp/anchor-notes.webp",
     "updateable": true,
     "privileged": false,
     "has_arm": false,
-    "is_dev": true,
+    "is_dev": false,
     "execute_in": [
       "lxc"
     ],
@@ -5237,7 +5237,7 @@
     "updateable": true,
     "privileged": false,
     "has_arm": false,
-    "is_dev": true,
+    "is_dev": false,
     "execute_in": [
       "lxc"
     ],
@@ -8903,7 +8903,7 @@
     "updateable": false,
     "privileged": false,
     "has_arm": false,
-    "is_dev": true,
+    "is_dev": false,
     "execute_in": [
       "lxc"
     ],
