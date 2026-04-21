@@ -24,7 +24,7 @@ The VM pre-start guard now recognises Virtual Functions. Both the slot-only synt
 ### New "SR-IOV active" state in the Monitor UI
 The GPU card in the Hardware page gains a third visual state with a dedicated teal colour, an in-line `SR-IOV ×N` pill (or `SR-IOV VF` for a Virtual Function), and dashed/faded LXC and VM branches. The Edit button is hidden because the state is hardware-managed.
 
-![SR-IOV active card and modal](https://raw.githubusercontent.com/MacRimi/ProxMenux/main/images/sriov-indicator.png)
+![SR-IOV active card and modal](https://raw.githubusercontent.com/MacRimi/ProxMenux/refs/heads/main/images/sriov-indicator.png)
 
 ### Modal dashboard for SR-IOV GPUs
 Opening the modal for a Physical Function with active VFs now shows:
